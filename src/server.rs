@@ -1,8 +1,5 @@
-use std::fmt::DebugSet;
-use std::future::Future;
 use std::mem::size_of;
-use std::ptr;
-use crate::app::{Message, OscillatorCfg};
+use crate::app::Message;
 use crate::bindings::{ParameterType_Waveform, ParameterValue, Section_Osc1, SynthMessage, Patch};
 
 use std::sync::mpsc::{Sender, Receiver, TryRecvError};
@@ -55,7 +52,7 @@ pub fn run_server(rx: Receiver<Message>, tx: Sender<Patch>){
 unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     ::core::slice::from_raw_parts(
         (p as *const T) as *const u8,
-        ::core::mem::size_of::<T>(),
+        size_of::<T>(),
     )
 }
 
@@ -70,6 +67,9 @@ impl From<Message> for SynthMessage {
                     value:  ParameterValue{ value_WaveformEnum: waveform }
                 }
             },
+            Message::SetParameter(section, param_type, value) =>{
+                SynthMessage{channel:16, destination:section, parameter: param_type, value}
+            }
             _ => {
                 SynthMessage { channel: 16, destination: 0, parameter: 0, value: ParameterValue { value_int8_t: 0 } }
             }
