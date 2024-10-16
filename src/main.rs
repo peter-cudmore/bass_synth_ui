@@ -16,7 +16,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "BassSynth",
         native_options,
-        Box::new(|cc| Box::new(bass_synth_ui::BassSynthUI::new(cc))),
+        Box::new(|cc| Ok(Box::new(bass_synth_ui::BassSynthUI::new(cc)))),
     )
 }
 

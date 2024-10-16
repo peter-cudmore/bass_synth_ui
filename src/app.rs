@@ -1,8 +1,10 @@
-use std::fmt::{Debug, Formatter, Write};
+use std::fmt::{format, Debug, Formatter, Write};
 use std::ops::RangeInclusive;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use egui::{Ui, Visuals};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use egui::Shape::Path;
 use crate::bindings::{WaveformEnum, WaveformEnum_SAW, WaveformEnum_SQR, WaveformEnum_SIN, Patch, ParameterType, ParameterValue, ParameterType_Attack, Section, Section_Filter, ParameterType_Decay, ParameterType_Sustain, ParameterType_Release, ParameterType_Cutoff, ParameterType_Resonance, ParameterType_Emphasis, FilterModeEnum, FilterModeEnum_HP, FilterModeEnum_LP, ParameterType_Mode, Section_Amp, ParameterType_Gain, Section_Osc1, Section_Osc2, Section_Osc3, Section_Global, ParameterType_Waveform, ParameterType_Coarse, ParameterType_Fine};
 use crate::server::run_server;
 
@@ -10,6 +12,7 @@ pub struct BassSynthUI {
     sender: Sender<Message>,
     rx: Receiver<Patch>,
     patch: PatchUI,
+
 }
 
 
@@ -181,15 +184,15 @@ fn draw_oscillator_section(oscillator_cfg: &mut OscillatorCfg, index: Osc, sende
             ui.label("Coarse");
             ui.add(egui::DragValue::new(coarse)
                 .speed(1.0)
-                .clamp_range(RangeInclusive::new(-24, 24)))
-                .drag_released()
+                .range(RangeInclusive::new(-24, 24)))
+                .drag_stopped()
                 .then(|| { sender.send(Message::SetParameter(section, ParameterType_Coarse, ParameterValue{value_int8_t: coarse.clone()})) });
             ui.end_row();
 
 
             ui.label("Fine");
-            ui.add(egui::DragValue::new(fine).speed(1.0).clamp_range(RangeInclusive::new(-50, 50)))
-                .drag_released()
+            ui.add(egui::DragValue::new(fine).speed(1.0).range(RangeInclusive::new(-50, 50)))
+                .drag_stopped()
                 .then(|| { sender.send(Message::SetParameter(section, ParameterType_Fine, ParameterValue{value_int8_t:fine.clone()}))});
             ui.end_row();
 
@@ -205,7 +208,7 @@ fn draw_oscillator_section(oscillator_cfg: &mut OscillatorCfg, index: Osc, sende
                         }
                     });
                 ui.add(slider)
-                    .drag_released()
+                    .drag_stopped()
                     .then(|| { sender.send(Message::SetParameter(section, ParameterType_Gain, ParameterValue{value_int8_t: gain.clone()}))});
                 ui.end_row();
             });
@@ -222,7 +225,7 @@ where T: egui::emath::Numeric
             .vertical();
 
         ui.add(slider)
-            .drag_released()
+            .drag_stopped()
             .then(|| {
                 let msg = on_changed(value.clone());
                 sender.send(msg).unwrap();
@@ -240,8 +243,7 @@ fn draw_filter_section(filter_cfg: &mut FilterCfg, sender: &Sender<Message>, ui:
         egui::Grid::new("Filter header")
             .num_columns(2)
             .show(ui, |ui| {
-                ui.heading("Filter");
-                ui.add_space(200.0);
+                ui.heading("Filter");;
                 ui.horizontal(|ui| {
                     ui.selectable_value(filter_type, FilterModeEnum_HP, "HP")
                         .changed().then(|| sender.send(
@@ -286,43 +288,84 @@ fn draw_filter_section(filter_cfg: &mut FilterCfg, sender: &Sender<Message>, ui:
 
 fn draw_amp_section(ampl_config: &mut AmplConfig, sender: &Sender<Message>, ui: &mut Ui){
     ui.group(|ui| {
-        ui.heading("Amp");
-        let AmplConfig{gain, envelope} = ampl_config;
-        let EnvelopeCfg{attack,decay,sustain,release} = envelope;
+        ui.vertical(|ui| {
+            ui.heading("Amp");
+            ui.end_row();
+            let AmplConfig { gain, envelope } = ampl_config;
+            let EnvelopeCfg { attack, decay, sustain, release } = envelope;
 
-        ui.horizontal(
-            |ui| {
-                add_slider(attack, TimeWindow, "A", ui, sender, |v| {
-                    Message::SetParameter(Section_Amp, ParameterType_Attack, ParameterValue { value_float: v })
+            ui.horizontal(
+                |ui| {
+                    add_slider(attack, TimeWindow, "A", ui, sender, |v| {
+                        Message::SetParameter(Section_Amp, ParameterType_Attack, ParameterValue { value_float: v })
+                    });
+                    add_slider(decay, TimeWindow, "D", ui, sender, |v| {
+                        Message::SetParameter(Section_Amp, ParameterType_Decay, ParameterValue { value_float: v })
+                    });
+                    add_slider(sustain, 0.0..=1.0, "S", ui, sender, |v| {
+                        Message::SetParameter(Section_Amp, ParameterType_Sustain, ParameterValue { value_float: v })
+                    });
+                    add_slider(release, TimeWindow, "R", ui, sender, |v| {
+                        Message::SetParameter(Section_Amp, ParameterType_Release, ParameterValue { value_float: v })
+                    });
+                    ui.vertical(|ui| {
+                        ui.label("Gain");
+                        let slider = egui::Slider::new(gain, i8::MIN..=6)
+                            .vertical()
+                            .custom_formatter(|n, _| {
+                                let n = n as i8;
+                                if n == i8::MIN {
+                                    format!("-inf")
+                                } else {
+                                    format!("{}", n)
+                                }
+                            });
+                        ui.add(slider)
+                            .drag_stopped()
+                            .then(|| { sender.send(Message::SetParameter(Section_Amp, ParameterType_Gain, ParameterValue { value_int8_t: gain.clone() })) });
+                    }
+                    );
                 });
-                add_slider(decay, TimeWindow, "D", ui, sender, |v| {
-                    Message::SetParameter(Section_Amp, ParameterType_Decay, ParameterValue { value_float: v })
-                });
-                add_slider(sustain, 0.0..=1.0, "S", ui, sender, |v| {
-                    Message::SetParameter(Section_Amp, ParameterType_Sustain, ParameterValue { value_float: v })
-                });
-                add_slider(release, TimeWindow, "R", ui, sender, |v| {
-                    Message::SetParameter(Section_Amp, ParameterType_Release, ParameterValue { value_float: v })
-                });
-                ui.vertical(|ui| {
-                    ui.label("Gain");
-                    let slider = egui::Slider::new(gain, i8::MIN..=6)
-                        .vertical()
-                        .custom_formatter(|n, _| {
-                            let n = n as i8;
-                            if n == i8::MIN {
-                                format!("-inf")
-                            } else {
-                                format!("{}", n)
-                            }
-                        });
-                    ui.add(slider)
-                        .drag_released()
-                        .then(|| { sender.send(Message::SetParameter(Section_Amp, ParameterType_Gain, ParameterValue { value_int8_t: gain.clone() })) });
-                }
-                );
-            });
+        });
     });
+}
+
+struct PatchBank {
+    path: PathBuf,
+    patches: Vec<Patch>,
+    dirty: bool,
+}
+
+fn draw_patch_section(ui: &mut Ui){
+    let number = 0;
+    let file = std::path::Path::new("patch.patch");
+
+    ui.group(
+        |ui|{
+            ui.vertical(
+              |ui|{
+                  ui.heading("Patch");
+                  ui.end_row();
+                  if ui.button("Open").clicked() {
+
+                  };
+                  ui.end_row();
+                  if ui.button("Save").clicked() {
+
+                  }
+                  ui.end_row();
+                  ui.horizontal(
+                      |ui|{
+                          if ui.button("<").clicked(){};
+                          ui.label(format!("{}", number));
+                          if ui.button(">").clicked(){};
+                      }
+                  )
+
+              }
+            );
+        }
+    );
 }
 
 impl eframe::App for BassSynthUI {
@@ -336,7 +379,7 @@ impl eframe::App for BassSynthUI {
         ctx.set_visuals(Visuals::dark());
         {
             if let Ok(msg) = self.rx.try_recv() {
-                //self.patch = msg;
+                self.patch = msg.into();
             }
 
             let patch = & mut self.patch;
@@ -366,7 +409,10 @@ impl eframe::App for BassSynthUI {
                     });
                 draw_filter_section(&mut patch.filter, sender, ui);
                 ui.end_row();
-                draw_amp_section(&mut patch.amp, sender, ui);
+                ui.horizontal(|ui| {
+                    draw_amp_section(&mut patch.amp, sender, ui);
+                    draw_patch_section(ui);
+                });
             },
             );
 
